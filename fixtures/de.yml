@@ -1,0 +1,9 @@
+de:
+  page:
+    title: "Hey"
+    body: "Body"
+  foo:
+    bar:
+      nested:
+        ex: 2
+        bar: 4

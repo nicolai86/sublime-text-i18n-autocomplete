@@ -1,9 +1,14 @@
 import sublime
 import sublime_plugin
 import os
-
 import re
 import time
+import subprocess
+import json
+
+PLUGIN_DIRECTORY = os.path.dirname(os.path.realpath(__file__))
+HELPER_DIRECTORY = PLUGIN_DIRECTORY + '/'
+FLAT_YAML_KEYS = HELPER_DIRECTORY + 'flat_yaml_keys.rb'
 
 # stolen from https://github.com/alienhard/SublimeAllAutocomplete
 # limits to prevent bogging down the system
@@ -58,6 +63,19 @@ class RubyI18nAutocomplete(sublime_plugin.EventListener):
         else:
             return sublime.load_settings('i18n.sublime-settings').get(string)
 
+    def locale_path(self, view):
+        locales_directory = ''
+        current_path = view.file_name()
+        for path in sublime.active_window().folders():
+            locales_directory = path + '/config/locales'
+            break
+        return locales_directory
+
+    def yaml_keys(self, view):
+        command = ['ruby', FLAT_YAML_KEYS, self.locale_path(view)]
+        json_keys = subprocess.check_output(command).decode("utf-8")
+        return json.loads(json_keys)
+
     def on_query_completions(self, view, prefix, locations):
         # don't do anything unless we are inside ruby strings
         valid_scopes = self.get_setting('ri18n_valid_scopes',view)
@@ -66,13 +84,11 @@ class RubyI18nAutocomplete(sublime_plugin.EventListener):
         if not any(s in view.scope_name(sel) for s in valid_scopes):
             return []
 
-        # TODO yaml stuff
-        current_path = view.file_name()
-        for path in sublime.active_window().folders():
-            current_path = current_path.replace(path + '/', '')
-
         words = self.word_completion(view, prefix, locations)
-        words.append(current_path)
+
+        for key in self.yaml_keys(view):
+            words.append(key)
+
         matches = [(w, w.replace('$', '\\$')) for w in words]
         return matches
 
