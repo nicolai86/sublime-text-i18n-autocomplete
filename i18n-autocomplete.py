@@ -34,40 +34,59 @@ class YamlChecker:
         json_keys = subprocess.check_output(command).decode("utf-8")
         return json.loads(json_keys)
 
+class CorrectAutoCompletionCommand(sublime_plugin.TextCommand):
+    def run(self, edit, col=None):
+        """
+            replaces the content of a quoted string with a somestring, indentified using the start index
+            e.g. "keykey.foo" can be replaced to "key.foo"
+
+            this is necessary because sublime's autocompletion inserts the value rather than replaces what's already there.
+        """
+        view = sublime.active_window().active_view()
+        sel = view.sel()[0].a
+
+        (row, _) = view.rowcol(sel)
+        line = view.substr(view.line(sel))
+
+        end_index = line.find("'", col)
+        if end_index == -1:
+            end_index = line.find('"', col)
+        start_index = line.rfind("'", 0, col)
+        if start_index == -1:
+            start_index = line.rfind('"', 0, col)
+
+        completion = line[col:end_index]
+
+        start_point = self.view.text_point(row, start_index + 1)
+        end_point = self.view.text_point(row, end_index)
+
+        region = sublime.Region(start_point, end_point)
+        view.replace(edit, region, completion)
+
 class RubyI18nAutocomplete(sublime_plugin.EventListener):
     def on_activated(self, view):
         self.key_loader = YamlChecker(self.locale_path())
         self.key_loader.reload()
+        self.completion_start_col = None
 
-    # def on_query_context(self, view, key, operator, operand, match_all):
-    #     sel = view.sel()[0]
-    #     if not sel or sel.empty():
-    #         return None
+    def on_commit_completion(self):
+        print("foo")
 
-    #     valid_scopes = self.get_setting('ri18n_valid_scopes', view)
-    #     if not any(s in view.scope_name(sel) for s in valid_scopes):
-    #         return None
+    def on_post_text_command(self, view, command_name, args):
+        if command_name != "commit_completion":
+            return None
 
-    #     print("on_query_context")
+        valid_scopes = self.get_setting('ri18n_valid_scopes',view)
+        sel = view.sel()[0].a
 
-    #     valid = sel.empty()
-    #     return valid == operand
+        if not any(s in view.scope_name(sel) for s in valid_scopes):
+            return None
 
-    def on_selection_modified(self, view):
-        if not view.window():
-            return
+        if self.completion_start_col:
+            view.run_command("correct_auto_completion", { 'col': self.completion_start_col })
+            self.completion_start_col = None
 
-        # print("modified")
-
-    #     print("on_selection_modified")
-    #     if sel.empty():
-    #         print(view.substr(sel))
-    #         # if len(view.extract_scope(sel.a)) < 3:
-    #         #     view.run_command('auto_complete',
-    #         #     {'disable_auto_insert': True,
-    #         #     'next_completion_if_showing': False})
-
-    def get_setting(self,string,view=None):
+    def get_setting(self, string, view=None):
         if view and view.settings().get(string):
             return view.settings().get(string)
         else:
@@ -80,6 +99,21 @@ class RubyI18nAutocomplete(sublime_plugin.EventListener):
             break
         return locales_directory
 
+    def quoted_string_region(self, view):
+        sel = view.sel()[0].a
+        line = view.substr(view.line(sel))
+        (row, col) = view.rowcol(sel)
+
+        end_index = line.find("'", col)
+        if end_index == -1:
+            end_index = line.find('"', col)
+
+        start_index = line.rfind("'", 0, col)
+        if start_index == -1:
+            start_index = line.rfind('"', 0, col)
+
+        return (start_index, end_index, col)
+
     def on_query_completions(self, view, prefix, locations):
         # don't do anything unless we are inside ruby strings
         valid_scopes = self.get_setting('ri18n_valid_scopes',view)
@@ -89,18 +123,26 @@ class RubyI18nAutocomplete(sublime_plugin.EventListener):
         if len(self.key_loader.keys) == 0:
             return []
 
-        # print(view.substr(view.line(sel)))
         if not any(s in view.scope_name(sel) for s in valid_scopes):
             return []
+
+        line = view.substr(view.line(sel))
+        (start_index, end_index, col) = self.quoted_string_region(view)
+        quoted_string = line[start_index+1:end_index]
+        self.completion_start_col = col - len(prefix)
 
         words = self.word_completion(view, prefix, locations)
 
         for key in self.key_loader.keys:
-            words.append(key)
+            if key.startswith(quoted_string) or len(quoted_string) == 0:
+                words.append(key)
 
-        matches = [(w, w.replace('$', '\\$')) for w in words]
+        matches = [(w, w) for w in words]
         return matches
 
+    # all word completion plugin... might be deleted later on
+    #
+    #
     def word_completion(self, view, prefix, locations):
         words = []
 
