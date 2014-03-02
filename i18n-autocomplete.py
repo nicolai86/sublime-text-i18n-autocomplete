@@ -5,6 +5,7 @@ import re
 import time
 import subprocess
 import json
+import datetime, calendar
 
 PLUGIN_DIRECTORY = os.path.dirname(os.path.realpath(__file__))
 HELPER_DIRECTORY = PLUGIN_DIRECTORY + '/'
@@ -19,35 +20,44 @@ MAX_VIEWS = 20
 MAX_WORDS_PER_VIEW = 100
 MAX_FIX_TIME_SECS_PER_VIEW = 0.01
 
+class YamlChecker:
+    def __init__(self, locale_path):
+        self.locale_path = locale_path
+        self.keys = []
+
+    def reload(self):
+        self.timestamp = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        self.keys = self.yaml_keys()
+
+    def yaml_keys(self):
+        command = ['ruby', FLAT_YAML_KEYS, self.locale_path]
+        json_keys = subprocess.check_output(command).decode("utf-8")
+        return json.loads(json_keys)
+
 class RubyI18nAutocomplete(sublime_plugin.EventListener):
-    def on_activated(self,view):
-        self.size = view.size()
+    def on_activated(self, view):
+        self.key_loader = YamlChecker(self.locale_path())
+        self.key_loader.reload()
 
-    def on_query_context(self, view, key, operator, operand, match_all):
-        sel = view.sel()[0]
-        if not sel or sel.empty():
-            return None
-
-        valid_scopes = self.get_setting('ri18n_valid_scopes', view)
-        if not any(s in view.scope_name(sel) for s in valid_scopes):
-            return None
-
-        print("on_query_context")
-
-        valid = sel.empty()
-        return valid == operand
-
-    # def on_selection_modified(self, view):
-    #     if not view.window():
-    #         return
-
+    # def on_query_context(self, view, key, operator, operand, match_all):
     #     sel = view.sel()[0]
     #     if not sel or sel.empty():
-    #         return
+    #         return None
 
     #     valid_scopes = self.get_setting('ri18n_valid_scopes', view)
     #     if not any(s in view.scope_name(sel) for s in valid_scopes):
-    #         return
+    #         return None
+
+    #     print("on_query_context")
+
+    #     valid = sel.empty()
+    #     return valid == operand
+
+    def on_selection_modified(self, view):
+        if not view.window():
+            return
+
+        # print("modified")
 
     #     print("on_selection_modified")
     #     if sel.empty():
@@ -63,30 +73,29 @@ class RubyI18nAutocomplete(sublime_plugin.EventListener):
         else:
             return sublime.load_settings('i18n.sublime-settings').get(string)
 
-    def locale_path(self, view):
+    def locale_path(self):
         locales_directory = ''
-        current_path = view.file_name()
         for path in sublime.active_window().folders():
             locales_directory = path + '/config/locales'
             break
         return locales_directory
-
-    def yaml_keys(self, view):
-        command = ['ruby', FLAT_YAML_KEYS, self.locale_path(view)]
-        json_keys = subprocess.check_output(command).decode("utf-8")
-        return json.loads(json_keys)
 
     def on_query_completions(self, view, prefix, locations):
         # don't do anything unless we are inside ruby strings
         valid_scopes = self.get_setting('ri18n_valid_scopes',view)
         sel = view.sel()[0].a
 
+        # don't do anything if we have nothing
+        if len(self.key_loader.keys) == 0:
+            return []
+
+        # print(view.substr(view.line(sel)))
         if not any(s in view.scope_name(sel) for s in valid_scopes):
             return []
 
         words = self.word_completion(view, prefix, locations)
 
-        for key in self.yaml_keys(view):
+        for key in self.key_loader.keys:
             words.append(key)
 
         matches = [(w, w.replace('$', '\\$')) for w in words]
