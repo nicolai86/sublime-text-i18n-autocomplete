@@ -16,6 +16,15 @@ class FlattenYaml
     @keys
   end
 
+  def find_yaml_files path, depth = 0
+    path_suffix = "*/" * depth
+    Dir[path + "/#{path_suffix}*.yml"].each do |dir|
+      self.merge(dir)
+    end
+
+    find_yaml_files(path, depth + 1) if depth < 3
+  end
+
   protected
 
   def construct_keys yaml
@@ -31,9 +40,5 @@ class FlattenYaml
 end
 
 flattener = FlattenYaml.new
-
-Dir[ARGV[0] + "/**/*.yml"].each do |dir|
-  flattener.merge(dir)
-end
-
+flattener.find_yaml_files(ARGV[0])
 $stdout << flattener.to_json
